@@ -86,7 +86,7 @@ const int durations[] = {
 
 void setup() {
   Serial.begin(115200);
-  Serial1.begin(9600); // Communication série pour échanges avec d'autres ESP32
+  Serial1.begin(9600, SERIAL_8N1, 2, 3); // Communication série pour échanges avec d'autres ESP32
   
   // Initialisation de l'écran OLED
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
@@ -114,8 +114,6 @@ void loop() {
   } else {
     handleButtonPress();
   }
-
-  // Écouter les échanges de monstres via Serial1
   receiveMonster();
 }
 
@@ -171,7 +169,7 @@ void displayTradeMenu() {
   display.setTextSize(1);
   display.setCursor(0, 0);
   display.setTextColor(SSD1306_WHITE);
-  display.print("Menu Echange:");
+  display.print("Mes monstres :");
   display.setCursor(0, 10);
   for (int i = 0; i < 2; i++) {
     display.setCursor(0, 10 + (i * 10));
@@ -180,7 +178,7 @@ void displayTradeMenu() {
     display.print(monsterInventory[i].name);
   }
   display.setCursor(0, 50);
-  display.print("A: Suivant");
+  display.print("A: Echange  B: Retour");
   display.display();
 }
 
@@ -274,17 +272,35 @@ void chooseMonsterToSend() {
 
 // Fonction pour envoyer un monstre via Serial1
 void sendMonster(const char* monster) {
-  Serial1.println(monster); 
-  displayMessage("Monstre envoye!");
-
-  // Retirer le monstre de l'inventaire
+  // Trouver le monstre dans l'inventaire pour envoyer ses données complètes
   for (int i = 0; i < monsterCount; i++) {
     if (strcmp(monsterInventory[i].name, monster) == 0) {
-      // Décaler les monstres suivants pour combler l'espace
+      // Envoyer les données complètes du monstre via Serial1
+      Serial1.print(monsterInventory[i].name);
+      Serial1.print(",");
+      Serial1.print(monsterInventory[i].power);
+      Serial1.print(",");
+      Serial1.print(monsterInventory[i].type);
+      Serial1.print(",");
+      Serial1.println(monsterInventory[i].health);
+
+      Serial.print(monsterInventory[i].name);
+      Serial.print(",");
+      Serial.print(monsterInventory[i].power);
+      Serial.print(",");
+      Serial.print(monsterInventory[i].type);
+      Serial.print(",");
+      Serial.println(monsterInventory[i].health);
+
+      // Afficher le message de confirmation
+      displayMessage("Monstre envoye! \n A: Fini");
+
+      // Retirer le monstre de l'inventaire après l'envoi
       for (int j = i; j < monsterCount - 1; j++) {
         monsterInventory[j] = monsterInventory[j + 1];
       }
       monsterCount--; // Réduire le nombre total de monstres
+      
       break;
     }
   }
@@ -292,18 +308,55 @@ void sendMonster(const char* monster) {
 
 // Fonction pour recevoir un monstre
 void receiveMonster() {
+  Serial.print("Receive");
+  String receivedData = "";  // Variable statique pour accumuler les données
   if (Serial1.available()) {
-    String receivedMonster = Serial1.readStringUntil('\n');
+    char c = Serial1.read();  // Lire caractère par caractère
+    if (c == '\n') {
+      Serial.println("Received");
+      // Lorsque la fin de ligne est atteinte, traiter les données
+      parseMonsterData(receivedData);
+      receivedData = "";  // Réinitialiser pour le prochain message
+    } else {
+      receivedData += c;  // Accumuler les caractères
+    }
+    delay(100);
+  }
+}
+
+void parseMonsterData(const String &data) {
+  // Parse les données reçues pour créer un nouveau monstre
+  int firstComma = data.indexOf(',');
+  int secondComma = data.indexOf(',', firstComma + 1);
+  int thirdComma = data.indexOf(',', secondComma + 1);
+
+  if (firstComma != -1 && secondComma != -1 && thirdComma != -1) {
+    String name = data.substring(0, firstComma);
+    int power = data.substring(firstComma + 1, secondComma).toInt();
+    String type = data.substring(secondComma + 1, thirdComma);
+    int health = data.substring(thirdComma + 1).toInt();
+
+    Serial.print("Nom : "); Serial.println(name);
+    Serial.print("Puissance : "); Serial.println(power);
+    Serial.print("Type : "); Serial.println(type);
+    Serial.print("Vie : "); Serial.println(health);
+
     if (monsterCount < 5) {
-      Monster newMonster = {"Recu", 3, "Normal", 10};
-      newMonster.name = receivedMonster.c_str();
+      Monster newMonster;
+      newMonster.name = strdup(name.c_str());  // Assurez-vous de copier la chaîne
+      newMonster.power = power;
+      newMonster.type = strdup(type.c_str());  // Assurez-vous de copier la chaîne
+      newMonster.health = health;
+
+      // Ajouter le nouveau monstre à l'inventaire
       monsterInventory[monsterCount++] = newMonster;
-      displayMessage("Monstre recu!");
+      displayMessage("Monstre reçu!");
     } else {
       displayMessage("Inventaire plein!");
     }
   }
 }
+
 
 // Fonction pour afficher un message temporaire
 void displayMessage(const char* msg) {
